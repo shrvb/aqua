@@ -1,67 +1,85 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
-#include <LiquidCrystal_I2C.h>
 
-Adafruit_BMP280 bmp; // Create an instance of the BMP280 sensor
-// Initialize the LiquidCrystal_I2C object with the I2C address and dimensions
-LiquidCrystal_I2C lcd(0x27, 16, 2); // Address 0x27, 16 columns, 2 rows
+#define LED_PIN 2
+
+Adafruit_BMP280 bmp;
+
+float ambientPressure = 0;
+float bottleArea = 50.0;
 
 void setup() {
-  // Start the Serial Monitor
-  Serial.begin(9600);
-  while (!Serial) {
-    delay(10); // Wait for Serial Monitor to open
+  Serial.begin(115200);
+  delay(2000);
+
+  pinMode(LED_PIN, OUTPUT);
+
+  Wire.begin(8, 9); // SDA=GPIO8, SCL=GPIO9
+
+  Serial.println("BMP280 initialising...");
+
+  if (!bmp.begin(0x76)) {
+    Serial.println("Not found at 0x76, trying 0x77...");
+    if (!bmp.begin(0x77)) {
+      Serial.println("BMP280 not found. Check wiring.");
+      // Blink rapidly to signal error
+      while (1) {
+        digitalWrite(LED_PIN, HIGH);
+        delay(100);
+        digitalWrite(LED_PIN, LOW);
+        delay(100);
+      }
+    }
   }
 
-  Serial.println(F("BMP280 Sensor Test"));
+  Serial.println("BMP280 found.");
 
-  // Initialize the BMP280 sensor
-  if (!bmp.begin(0x76)) { // 0x76 is the I2C address of the BMP280
-    Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
-    while (1);
+  bmp.setSampling(
+    Adafruit_BMP280::MODE_NORMAL,
+    Adafruit_BMP280::SAMPLING_X2,
+    Adafruit_BMP280::SAMPLING_X16,
+    Adafruit_BMP280::FILTER_X16,
+    Adafruit_BMP280::STANDBY_MS_500
+  );
+
+  delay(1000);
+
+  ambientPressure = bmp.readPressure();
+  Serial.print("Baseline: ");
+  Serial.print(ambientPressure);
+  Serial.println(" Pa");
+  Serial.println("--- Place bottle over sensor and add water ---");
+
+  // Three slow blinks = ready
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(LED_PIN, HIGH);
+    delay(300);
+    digitalWrite(LED_PIN, LOW);
+    delay(300);
   }
-
-  // Configure the BMP280 settings
-  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,   // Operating Mode.
-                  Adafruit_BMP280::SAMPLING_X2,  // Temp. oversampling
-                  Adafruit_BMP280::SAMPLING_X16, // Pressure oversampling
-                  Adafruit_BMP280::FILTER_X16,   // Filtering.
-                  Adafruit_BMP280::STANDBY_MS_500); // Standby time.
-
-  // Initialize the LCD
-  lcd.begin();
-  lcd.backlight();
-  lcd.print("BMP280 & LCD"); // Display a startup message
-  delay(2000); // Wait for 2 seconds
-  lcd.clear();
 }
 
 void loop() {
-  // Read temperature and pressure data
-  float temperature = bmp.readTemperature();
-  float pressure = bmp.readPressure();
+  float rawP   = bmp.readPressure();
+  float netP   = rawP - ambientPressure;
+  float height = netP / (1000.0 * 9.81);
+  float volume = height * bottleArea * 10000.0;
 
-  // Display temperature and pressure on the LCD
-  lcd.setCursor(0, 0); // Set cursor to the first row
-  lcd.print("Temp: ");
-  lcd.print(temperature);
-  lcd.print(" C");
+  Serial.print("Temp: ");
+  Serial.print(bmp.readTemperature(), 1);
+  Serial.print(" C  |  Raw: ");
+  Serial.print(rawP, 1);
+  Serial.print(" Pa  |  Net: ");
+  Serial.print(netP, 2);
+  Serial.print(" Pa  |  Vol: ");
+  Serial.print(volume, 1);
+  Serial.println(" ml");
 
-  lcd.setCursor(0, 1); // Set cursor to the second row
-  lcd.print("Press: ");
-  lcd.print(pressure / 100.0); // Convert Pa to hPa
-  lcd.print(" hPa");
+  // Single blink per reading
+  digitalWrite(LED_PIN, HIGH);
+  delay(50);
+  digitalWrite(LED_PIN, LOW);
 
-  // Print the data to the Serial Monitor
-  Serial.print(F("Temperature: "));
-  Serial.print(temperature);
-  Serial.println(F(" °C"));
-
-  Serial.print(F("Pressure: "));
-  Serial.print(pressure / 100.0); // Convert Pa to hPa
-  Serial.println(F(" hPa"));
-
-  // Wait for 2 seconds before the next reading
   delay(2000);
 }
